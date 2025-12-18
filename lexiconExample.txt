@@ -1,0 +1,120 @@
+{
+	"lexiconSpecificationVersion":"0.2.0",
+	"lexiconVersion":"0.1.0",
+	"deviceName":"iMet-XQ2",
+	"deviceID":1,
+	"protocol":"serial",
+	"protocolTokens": {
+		"serial_port":-1,
+		"serial_baud":57600
+	},
+	"description":"Temperature, pressure, and humidity sensor with GPS",
+	"messages": [
+		{
+			"messageName":"serial_port",
+			"messageType":{
+				"messageType_q":true,
+				"messageType_c":true,
+				"messageType_p":false
+			},
+			"messageDescription":"Set or query the serial port for the device",
+			"messageTokens": {
+				"return_q":"int",
+				"return_q_len":1,
+				"argument_c":"int",
+				"argument_c_len":1
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"dataStream_forward",
+			"messageType":{
+				"messageType_q":true,
+				"messageType_c":false,
+				"messageType_p":false
+			},
+			"messageDescription":"Return all data since the last use of this message, up to the maximum size of the plugin's data buffer",
+			"messageTokens": {
+				"return_q":"byte",
+				"return_q_len":0
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"restartDevice",
+			"messageType":{
+				"messageType_q":false,
+				"messageType_c":true,
+				"messageType_p":false
+			},
+			"messageDescription":"Restart the XQ2 with a software reboot routine",
+			"messageTokens": {
+				"argument_c":"byte",
+				"argument_c_len":0
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"temperatureCoefficients",
+			"messageType":{
+				"messageType_q":true,
+				"messageType_c":true,
+				"messageType_p":false
+			},
+			"messageDescription":"Return or set the air temperature sensor's calibration coefficients",
+			"messageTokens": {
+				"argument_c":"float",
+				"argument_c_len":4,
+				"return_q":"float",
+				"return_q_len":4
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"humidityOffset",
+			"messageType":{
+				"messageType_q":true,
+				"messageType_c":true,
+				"messageType_p":false
+			},
+			"messageDescription":"Return or set the offset of the humidity sensor as a decimal",
+			"messageTokens": {
+				"argument_c":"float",
+				"argument_c_len":1,
+				"return_q":"float",
+				"return_q_len":1
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"airTemperature",
+			"messageType":{
+				"messageType_q":true,
+				"messageType_c":false,
+				"messageType_p":false
+			},
+			"messageDescription":"Return the most recent air temperature measurement in Celsius",
+			"messageTokens": {
+				"return_q":"float",
+				"return_q_len":0
+			},
+			"messagePanelClass":"..."
+		},
+		{
+			"messageName":"airTemperature_consecutive",
+			"messageType":{
+				"messageType_q":false,
+				"messageType_c":false,
+				"messageType_p":true
+			},
+			"messageDescription":"Return X consecutive air temperature measurements in Celsius",
+			"messageTokens": {
+				"return_p":"float",
+				"return_p_len":0,
+				"argument_p":"int",
+				"argument_p_len":1
+			},
+			"messagePanelClass":"..."
+		}
+	]
+}

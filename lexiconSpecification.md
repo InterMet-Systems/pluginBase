@@ -1,98 +1,421 @@
-# 1 Version
+# 1 Introduction
+
+This is the version of this lexicon specification.
+0.2.0
+
+Changelog:
+0.2.0
+
+* changed to json format
+* reworked structure and content
+
 0.1.0
 
-# 2 Lexicon Format
-A lexicon is a set of data representing the required initialization data, available commands, and source of the lexicon data that can be sent over an interface. In the context of DLLs or plugins, this means that The lexicon is provided by an adapter to describe what commands that adapter is capable of utilizing. Lexicons only contain information that is unique to the device!
-
-Here's an example lexicon with tabs added to make it look nice:
-/* all comments must fit within C++ style comment blocks, // is not allowed */
-/*
-name                    type            unit    cmds    desc
-*/
-"voltage"               :uint32e2	    :v      :q	    :"supply voltage";
-"commandVoltage"        :uint32e-2	    :v      :q	    :"ESC commanded voltage";
-"torque"                :uint32e1	    :nm     :qs	    :"current torque";
-"maxTorque"             :uint32e1	    :nm     :qs	    :"maximum torque";
-"speed"                 :int32e0		:rpm    :qs	    :"rotational velocity";
-"maxSpeed"		        :int32e0		:rpm    :qs	    :"rotational velocity";
-"angle"                 :int32e1	    :radian :qs	    :"angle relative to motor datum";
-"controlMode"           :uint8e0		:null   :qs	    :"set mode, 1=torque, 2=speed, 3=position";
-"state"                 :uint8e0		:null   :q	    :"state code for errors, refer to manual";
-"escTemperature"        :int32e1	    :k      :q	    :"temperature of the ESC board";
-"coilTemperature"       :int32e1	    :k      :q	    :"temperature of the motor coils";
-"triggerMeasurement"    :null		    :null   :s	    :“request a measurement be immediately done”;
-"example2"              :uint16e0[4]    :H      :qs     :"example";
-"example3"              :<uint16e0>     :mF     :qs     :"example";
-"example5"              :string         :ko     :qs     :"example";
-"example6"              :blob           :mF     :qs     :"example";
-
-Lexicons are ASCII encoded narrow strings consisting of colon and semicolon delimited data. Semicolons delimit command specifications (depicted as a row), and colons delimit tokens (depicted as columns). White space is ignored. All text is case sensative.
-
-A command specification consists of 5 tokens:
-name
-type
-unit
-command
-description
-
-## 2.1 Name token
-The name is a character string that is an alias for the command. All names within a lexicon must be unique. ASCII characters 32, 33, and 35-126 are allowed, omitting 34 (") to simplify parsing, for now. 
-
-The maximum length of the string is 32 characters. This constraint is imposed to limit memory usage in systems that are pre-allocating memory.
-
-## 2.2 Type token
-This may not be necessary with Java, as types can be passed between plugins and the calling code seemlessly.
-
-As shown in the example, the types are suitable for passing across barriers. That includes from a dynamic library and hardware transmission.
-
-The type is both the argument type and return type. The presence of an argument or return is determined by declaring it a null type and the command token. At the moment, there is no plan to add separate argument and return types because the intention is to handle low level operations for the user.
-
-Everything is an integer or null, null indicates no data is sent or received, just the base command (ie only the name is passed to the adapter)
-uint32e2[4]
-u = unsigned, omit for signed
-32 = 32 bit, offer 8, 16, 32, and 64, but 64 will need adaptations for 32 bit systems if implemented on anything that compiles to it
-e2 = multiply the contents by 10^2 to get the specified unit as per standard exponential notation
-[4] = array of 4 elements, fixed length, always
-<uint16e0> = vector of uint16e0, variable length allowed, allow at least 2^32 elements
-string = alias for uint8e0 that signals to front ends to display the data as an ASCII character
-blob = alias for uint8e0 that signals to front ends to display the data in an untyped form (probably hex)
-
-No bool, for now.
-
-### 2.2.1 Array Implementation
-Arrays are difficult to pass from dynamic libaries. There is no way to pass a variable length container at the time of compilation to a dynamic library because it requires a signature that can be defined in both the host and dynamic library. Variable length containers are not fundamental types in C or C++ and are not supported in Java or Python. They are passed across the isolation barrier as a struct of void*, int representing a pointer to the first byte of a blob of length int. This technique requires that once data is shared it cannot have its length changed. This is acceptable for the application of reading and writing data to external devices.
-
-So when I say uint32[4], what I'm actually saying is encode uint32[4] into little endian uint8_t[16], store uint8_t[0]* and 16 in a struct, then pass that struct to the caller. The caller reads the blob, translates endianness as needed, and casts the type based on the lexicon entry. What the pointer points to is irrelevant, so cast it to a void* to reduce the interface to one function and reference the lexicon to determine what it should be cast to (the array data will get passed with name, and the name is used as the lookup term in the lexicon). All common systems use the same format for pointers so long as the architecture is the same, which it always will be due to this taking place within an OS. Endianness is also likely to be the same, but the implementor must verify it. Because the arrays are a blob and the pointer is a void*, the DLL interface doesn't need any overloaded functions or whatnot to handle different kinds of data. This means that only one function is required to pass any data that can be represented by a lexicon to and from a plugin. For dynamic libraries, this is required. For java's dynamic compilation, it might not be but is to be determined.
-
-The blob needs to always be formatted in little endian to ensure accurate interpretation by the caller. Endianness is easy to check and change in C++, python, and Java. Just ask GPT.
-
-For arrays that are passed between a dynamic library and host, the originating side must ensure safety for the array's memory. Whatever side allocated that memory ABSOLUTELY MUST ensure that no other threads on that side access that memory while the other side needs it.
-
-When the host passes data to the dynamic library, this is achieved by the host waiting for the dynamic library function to return before using the memory (requiring it to be a blocking function). If the dynamic library needs the data in the array after returning, it must copy it to a location that is guarenteed to be safe by the dynamic library. It must be that way because the DLL can't do thread safe communication to the host by any means other than a function return. Because this format blocks the host, functions of this sort should be designed to return promptly.
-
-When the dynamic library returns data to the host, it must use the new keyword to make a copy of the data first (note that all dynamic libraries in Project Mycelium will be in C or C++). When the host is done with the point, it must call a release(void*) function to make the DLL release the memory. The void* must be passed so the dynamic library knows what pointer to release. There could be multiple! It is the responsibility of the host to call release or there will be a memory leak.
-
-## 2.3 Unit token
-The unit of the number, applicable for physical measurements. This is intended for automatic unit conversions, but won't be directly supported by individual adapters beyond ensuring that the unit is correct. Unit conversion will be supported by the adapter interface library.
-
-A table of all common units needs to be added. A square conversion table needs to be made for each physical quantity.
-
-String literals are not used because the expectation is to adhere to a standard set of units supported by the protocol. There may be reason to expand on that, but for now it can wait.
-
-## 2.4 Command token
-Determines what kind of command is available.
-q = query, the type token represents a return value
-s = set, the type token represents an argument
-
-## 2.5 Description token
-The description is a short explanation of what the name represents or the command does. This is mainly indended for display in an system automatically detecting adaptors. ASCII characters 32, 33, and 35-126 are allowed, omitting 34 (") to simplify parsing, for now. 
-
-The maximum length of the string is 64 characters. This constraint is imposed to limit memory usage in systems that are pre-allocating memory.
+* first version
 
 
 
+## 1.1 Purpose
+
+
+
+This document defines the format and required data fields for lexicons. To support that, it provides a general overview of the roll lexicons play within Project Mycelium, how they interact with plugins, and the version control procedures.
+
+
+
+## 1.2 Project Mycelium Terminology
+
+Project Mycelium: a long term project at InterMet to reduce redundant code bases and replace legacy software. This includes a wide variety of work and code.
+
+
+
+The upper level program: a program that loads and uses plugins.
+
+
+
+Plugin: a file containing Java code that is based on a common interface (defined in this specification).
+
+
+
+pluginBase: the base code that is used to ensure consistency across plugins, and the central point for version control of the lexicon and plugin. This implements a Java interface.
+
+
+
+Java interface: this is a feature of the Java language. It can be thought of as a template that does nothing on its own, but can be *implemented* by a plugin to make the place holders in the template functional. It is called an interface because that is exactly what it is - it establishes a common interface for implementations.
+
+
+
+Device: referring to an external device such as a printer, sensor, or anything that requires inter-process communication.
+
+
+
+Lexicon: a json file that defines a variety of information about how an upper level program should use a plugin. It includes identifying information about the plugin and a specification of the plugin's interface.
+
+
+
+## 1.3 Structure of a Project Mycelium Program
+
+A common plugin interface is defined in pluginBase, as well as the lexiconSpecification (this file). The lexiconSpecificationVersion originates from here (this repository).
+
+
+
+Plugins are written per device, such as for a sensor or printer. They include pluginBase as a git submodule in order to access the interface and make an implementation (public class plugin implements pluginBase). Plugins have an their own version, and reference the version of the lexicon/pluginBase.
+
+
+
+An upper level program is written that is able to load plugins, and is made to require a lexiconSpecificationVersion (respecting semantic versioning rules for compatibility). It follows a multiple step operation.
+
+1. At runtime, the upper level program loads plugins and the lexicon.
+2. The lexicon is parsed per the lexiconSpecificationVersion that the upper level program requires. This is used to determine what plugin to load, and can be used to determine if a plugin offers the messages that the upper level program requires (if it isn't locked to a device).
+3. Plugins are run with Java's dynamic compilation feature. Plugins also load the lexicon.
+4. The upper level program uses the information in the lexicon to determine how to properly call interface functions in the plugin, and how to interpret returned values. Likewise with the plugins. Plugins may also get information from the lexicon that is only used by the plugin.
+
+
+
+## 1.4 Version Control
+
+**Nathan needs to write this section**
+
+
+
+# 2 Interface
+
+## 2.1 Interface Functions
+
+Implementations support calls to the following functions, per the implementation of pluginBase. This is not a specification for code, only for reference. Refer to the pluginBase code for the code.
+
+* messageType\_q: query. Data is transferred to the upper level program once.
+* messageType\_c: command. Data is transferred to the plugin once.
+* messageType\_p: parameterized query. Data is transferred to the plugin, then to the upper level program.
+* startComm: starts communication with the device and opens/creates all system functions (such as ports).
+* stopComm: stops communication with the device and closes/removes all system functions (such as ports).
+* generic: a placeholder function template that is defined on a per plugin basis to support functionality beyond the lexiconSpecification. Based on messageType\_p.
+* Additional functions supporting implementation of plugins within Java. These are part of the API and are subject to version control like everything else, but are not part of the lexicon concept. Consequently, no additional detail will be provided in this document.
+
+
+
+Every plugin shall support calls to all standard interface functions without stopping program execution. Refer to the errors section for more information.
+
+
+
+## 2.2 Interface Data
+
+All data transferred to or from a plugin by interface functions is passed as a byte array, even if it has a length of 1 (refer to pluginBase for the implementation). The plugin and upper level program must then type cast according to the type specified in the lexicon. The valid types are defined as part of the messageType Json name (keep reading).
+
+
+
+# 3 Format
+
+Lexicons are written in json format. The data is principally represented as a single object containing multiple members (name-value pairs). Depending on the name used, other data may follow. It is the purpose of this specification to define what the expected names are, and what values should be paired with them. The structure of the document herein mirrors the json format. Subsections (1.1) correspond to a name-value pair, and a further subsections (1.1.1) correspond to arrays that are used as member values.
+
+
+
+Refer to lexiconExample for reference.
+
+
+
+Json naming conventions are generic, such as "name", and consequently do not blend well with common English when specificity is required. To address this issue, json terms will be indicated as belonging to json terminology with "json", as in "json name" from herein.
+
+
+
+## 3.1 lexiconSpecificationVersion
+
+Required:	yes
+Json type:	string
+
+
+
+This refers to the last lexiconSpecification.md version that the lexicon was verified to be compliant to. This will typically be the version of the lexiconSpecification that the lexicon was written under.
+
+
+
+The data in the string shall be in the format of major.minor.patch, such as "1.2.3". Numbers may not be omitted, and no additional text is allowed.
+
+
+
+## 3.2 lexiconVersion
+
+Required:	yes
+Json type:	string
+
+
+
+This refers to the version of this particular lexicon file.
+
+The data in the string shall be in the format of major.minor.patch, such as "1.2.3". Numbers may not be omitted, and no additional text is allowed.
+
+
+
+## 3.3 deviceName
+
+Required:	yes
+Json type:	string
+
+
+
+The deviceName is a human readable name for the device, such as "Dymo Label Writer 450". It is controlled at the lexiconVersion patch level. Do not use the deviceName to identify devices in code.
+
+
+
+## 3.4 deviceID
+
+Required:	yes
+Json type:	number (restricted to positive integers)
+
+
+
+The deviceID is number that is unique to that device's model (or the highest level of organization for which the plugin is compatible with). It is controlled at the lexiconVersion major version level and therefore should not change often. Use the deviceID to identify devices in code, such as specifying that a particular device be used with an upper level program.
+
+
+
+## 3.5 protocol
+
+Required:	no
+
+Json type:	string
+
+
+
+A string representing the protocol used to communicate with the sensor. Valid values are:
+
+* "usb" for any USB protocol (requires protocolTokens USB\_vendorID and USB\_productID)
+* "serial" for devices communicating via COM ports (requires protocol tokens serial\_port and serial\_baud)
+* "IP" for TCP and UDP
+
+
+
+For devices that do not require a protocol connection, such as a printer that is using an OS utility to communicate, 
+
+
+
+**Travis: I have no intention of implementing IP for the current project. I have not decided on the required json members, either.**
+
+
+
+## 3.6 protocolTokens
+
+Required:	yes, if protocol=usb, serial, or IP
+
+Json type:	array
+
+
+
+An array of tokens used to supply information about the device's communication. This may be used for multiple purposes. Example A: an upper level program may use them to get information from the user to establish a "serial" connection. Example B: they may act as hard coded data that is utilized by the plugin.
+
+
+
+### 3.6.1 USB\_vendorID
+
+Required:	yes, if protocol=usb
+
+Json type:	string
+
+
+
+The USB vendor ID of the device expressed as a 2 byte hexadecimal number.
+
+
+
+### 3.6.2 USB\_productID
+
+Required:	yes, if protocol=usb
+
+Json type:	string
+
+
+
+The USB product ID of the device expressed as a 2 byte hexadecimal number.
+
+
+
+### 3.6.3 serial\_port
+
+Required:	yes, if protocol=serial
+
+Json type:	number
+
+
+
+The number of the com port to connect to, expressed as the number only. IE COM1 is expressed as 1. Set this to -1 to indicate that the upper level program should determine the serial port (in which case a message needs to be provided to set the port number).
+
+
+
+### 3.6.4 serial\_baud
+
+Required:	yes, if protocol=serial
+
+Json type:	number
+
+
+
+The baud rate to open the serial port at.
+
+
+
+Note: all serial ports will open with 8N1 encoding and no flow control for the time being. When those get added, additional serial protocolTokens will need to be added.
+
+
+
+## 3.7 description
+
+Required:	no
+
+Json type:	string
+
+
+
+This is an optional human readable description of the device. The maximum length is 100 characters.
+
+
+
+## 3.8 messages
+
+Required:	yes
+
+Json type:	array of objects
+
+
+
+"messages" is a json array of objects, each with required members. Each json object represents a command that is valid to send to the plugin via messageType\_x interface functions. The json object can contain any number of entries, including none.
+
+
+
+All messages require the same json members. A brief summary is:
+
+* messageName is used to identify a functional group of messages
+* messageType identifies which messageType\_x functions are supported
+* messageDescription is a description of what the message does
+* messageTokens contains data type and length information for using with messageType\_x functions
+* messagePanelClass is the name of the Java class to use
+
+
+
+All message entries follow standard API semantic versioning rules, as they are an API.
+
+
+
+### 3.8.1 messageName
+
+Required:	yes
+
+Json type:	string
+
+
+
+The messageName is a character string that identifies a function. This is processed by messageType\_x functions to determine the required task.
+
+
+
+Changes to existing messageNames are controlled with the lexiconVersion major version. Adding new names is controlled with the lexiconVersion minor version.
+
+
+
+### 3.8.2 messageType and messageType\_x
+
+Required:	yes
+
+Json type:	object
+
+
+
+The messageType json member is an object containing 1 boolean member for each possible message type. The names match the messageType\_x interface functions.
+
+
+
+### 3.8.3 messageDescription
+
+Required:	yes
+
+Json type:	string
+
+
+
+This is a description of what the message does that is controlled with lexiconVersion patches. The maximum length is 100 characters.
+
+
+
+### 3.8.4 messageTokens
+
+Required:	yes
+
+Json type:	object
+
+
+
+Recall that the messageType\_x interface functions only accept or return byte arrays. The data in message tokens informs the plugin and the upper level program how to type cast the bytes into useful numbers.
+
+
+
+The possible json members are a matrix of messageType and function (return, argument, length). Combinations that are not applicable are omitted:
+
+* return\_q (type)
+* return\_p (type)
+* argument\_c (type)
+* argument\_p (type)
+* return\_q\_len (number, positive integer)
+* return\_p\_len (number, positive integer)
+* argument\_c\_len (number, positive integer)
+* argument\_p\_len (number, positive integer)
+
+
+
+Json members are only required if their matching messageType\_x entry is true.
+
+
+
+The json names ending with \_len specify the *minimum* expected length of the array in multiples of "type". The valid types are:
+
+* float, 32 bit
+* double, 64 bit
+* byte, 8 bit
+* short, 16 bit
+* int, 32 bit
+* long, 64 bit
+* ascii, wrapper for byte that notifies the upper level program that it should be interpreted as ASCII characters without escape sequences (raw ascii). **Travis: the point here is to differentiate between UTF-8 and ascii encoding with typing. Bad idea? My main motivation here is to explicitly support normal ascii (encoding + character set). It seems to be more common now to support UTF-8 (encoding) and unicode (character set). I think the Json standard requires the latter, but I want to support ascii because it is comparatively simple to decode and the tool of choice for things like the XQ2.**
+* time, wrapper for long that contains a unix timestamp in milliseconds
+
+
+
+Note that ASCII types may have a minimum length, but it is likely and acceptable that implementations of plugins will expect the upper level program to check the length of the byte array.
+
+
+
+Some commands may not require an input (such as triggers), in which case define an argument of byte and length of 0.
+
+
+
+### 3.8.5 messagePanelClass
+
+Required:	yes
+
+Json type:	string
+
+
+
+This is the name of the Java class to call in order to use this message. (**Travis: can you elaborate in a technically accurate way? The extent of elaboration is up to you, but how to get this string would be good to document.**)
+
+
+
+# 4 Plugin Errors
+
+If a plugin receives erroneous data from the upper level program, then it shall \_\_\_\_\_\_.
+**Travis: this needs to be decided on. I don't think this can be enforced by pluginBase because each function will be implemented for each plugin. Thus a standard behavior should be defined here. It does need to be defined because each messageType interface function will need to return something even passed invalid tokens (mainly applicable to parameterized queries).**
+
+# 5 Standard Messages
+
+**Nathan: fill this in soon.**
 
 
 
 
-Change readme to: make the com libraries with C/C++. Make the adapters and front end out of Java. This way only the platform specific code must be changed with the platform. The lexicon is still needed for the adapter<->front end coms because the adapters still require a simplified common interface. Types may or may not be necessary. Consider adding units to the lexicon and defining standard unit conversions.
+
+
+
+
+
+
+
+
+
+
+
